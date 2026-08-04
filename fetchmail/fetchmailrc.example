@@ -1,0 +1,19 @@
+set no bouncemail
+set syslog
+
+# One external mailbox mapped to one Exchange recipient.
+# Keep messages at the provider while testing.
+poll imap.provider.example
+  protocol IMAP
+  port 993
+  user "external@example.com"
+  password "CHANGE_ME"
+  ssl
+  sslcertck
+  keep
+  is "recipient@example.com" here
+  smtphost postfix
+  smtpaddress example.com
+
+# After successful production testing, replace `keep` with `no keep`
+# only when you are certain Postfix queue persistence and Exchange delivery work.
