@@ -1,0 +1,8 @@
+.env
+fetchmail/fetchmailrc
+clamav/database/
+redis/data/
+postfix/spool/
+logs/
+*.log
+.DS_Store
