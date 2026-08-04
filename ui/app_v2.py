@@ -31,7 +31,7 @@ code{background:#111827;padding:2px 5px;border-radius:4px}@media(max-width:750px
 <h1>MailGate</h1><div class="muted">IMAP/POP3 retrieval, Rspamd and ClamAV scanning, then SMTP relay to Exchange.</div>
 {% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<p class="{{ 'error' if category=='error' else 'ok' }}">{{ message }}</p>{% endfor %}{% endwith %}
 <div class="card"><h2>Backend</h2><div class="grid"><div><strong>Exchange target</strong><br><code>{{ exchange_host }}:{{ exchange_port }}</code></div><div><strong>Fetch interval</strong><br><code>{{ poll_interval }} seconds</code></div></div></div>
-<div class="card"><h2>Mailboxes</h2>{% if accounts %}<table><thead><tr><th>Provider</th><th>Login</th><th>Protocol</th><th>Exchange recipient</th><th>Source handling</th><th></th></tr></thead><tbody>{% for a in accounts %}<tr><td>{{ a.host }}:{{ a.port }}</td><td>{{ a.username }}</td><td>{{ a.protocol|upper }} / TLS</td><td>{{ a.recipient }}</td><td>{{ 'Keep copy' if a.keep else 'Delete after accepted' }}</td><td><form method="post" action="{{ url_for('delete_account',index=loop.index0) }}"><button class="danger">Delete</button></form></td></tr>{% endfor %}</tbody></table>{% else %}<p class="warn">No provider mailboxes configured yet.</p>{% endif %}</div>
+<div class="card"><h2>Mailboxes</h2>{% if accounts %}<table><thead><tr><th>Provider</th><th>Login</th><th>Protocol</th><th>Exchange recipient</th><th>TLS validation</th><th>Source handling</th><th></th></tr></thead><tbody>{% for a in accounts %}<tr><td>{{ a.host }}:{{ a.port }}</td><td>{{ a.username }}</td><td>{{ a.protocol|upper }} / TLS</td><td>{{ a.recipient }}</td><td>{{ 'Verified' if a.verify_certificate else 'Disabled' }}</td><td>{{ 'Keep copy' if a.keep else 'Delete after accepted' }}</td><td><form method="post" action="{{ url_for('delete_account',index=loop.index0) }}"><button class="danger">Delete</button></form></td></tr>{% endfor %}</tbody></table>{% else %}<p class="warn">No provider mailboxes configured yet.</p>{% endif %}</div>
 <div class="card"><h2>Add mailbox</h2><form method="post"><div class="grid">
 <label>IMAP/POP server<input required name="host" value="{{ form.host }}" placeholder="imap.example.com"></label>
 <label>Port<input required name="port" type="number" value="{{ form.port }}"></label>
@@ -39,9 +39,10 @@ code{background:#111827;padding:2px 5px;border-radius:4px}@media(max-width:750px
 <label>Provider username<input required name="username" value="{{ form.username }}" autocomplete="off"></label>
 <label>Provider password<input required name="password" type="password" autocomplete="new-password"></label>
 <label>Exchange recipient<input required name="recipient" type="email" value="{{ form.recipient }}" placeholder="user@example.com"></label>
-<label><input style="width:auto" type="checkbox" name="keep" {% if form.keep %}checked{% endif %}> Keep messages at provider</label></div>
+<label><input style="width:auto" type="checkbox" name="keep" {% if form.keep %}checked{% endif %}> Keep messages at provider</label>
+<label><input style="width:auto" type="checkbox" name="verify_certificate" {% if form.verify_certificate %}checked{% endif %}> Verify provider TLS certificate</label></div>
 <p class="actions"><button class="secondary" formaction="{{ url_for('test_provider_route') }}">Test provider login</button><button class="secondary" formaction="{{ url_for('test_exchange_route') }}">Test Exchange recipient</button><button formaction="{{ url_for('add_account') }}">Save and generate configuration</button></p>
-<p class="muted">The Exchange test validates SMTP connectivity and recipient acceptance using RCPT TO, then resets the transaction. It sends no message.</p></form></div>
+<p class="muted">Disable certificate verification only when the provider intentionally uses a private or self-signed certificate chain. The Exchange test validates SMTP connectivity and recipient acceptance using RCPT TO, then resets the transaction. It sends no message.</p></form></div>
 <div class="card"><h2>Generated configuration</h2><p><code>{{ fetchmail_file }}</code></p><pre style="white-space:pre-wrap;overflow:auto;background:#111827;padding:12px;border-radius:7px">{{ generated }}</pre></div>
 </main></body></html>"""
 
@@ -63,7 +64,11 @@ def load_settings():
         return {"accounts": []}
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) and isinstance(data.get("accounts"), list) else {"accounts": []}
+        if not isinstance(data, dict) or not isinstance(data.get("accounts"), list):
+            return {"accounts": []}
+        for account in data["accounts"]:
+            account.setdefault("verify_certificate", True)
+        return data
     except (OSError, json.JSONDecodeError):
         return {"accounts": []}
 
@@ -80,12 +85,14 @@ def atomic_write(path, content, mode=0o600):
 def generate_fetchmail(accounts):
     lines = ["set no bouncemail", "set no spambounce", "set syslog", "defaults timeout 60", ""]
     for account in accounts:
+        certificate_option = "sslcertck" if account.get("verify_certificate", True) else "no sslcertck"
         lines.extend([
             f"poll {json.dumps(account['host'])} protocol {account['protocol']}",
             f"  port {int(account['port'])}",
             f"  user {json.dumps(account['username'])}",
             f"  password {json.dumps(account['password'])}",
             "  ssl",
+            f"  {certificate_option}",
             f"  {'keep' if account.get('keep', True) else 'no keep'}",
             f"  smtpname {json.dumps(account['recipient'])}",
             "  smtphost 127.0.0.1",
@@ -105,12 +112,14 @@ def parse_form(require_password=True):
     except ValueError as exc:
         raise ValueError("Provider port must be numeric.") from exc
     account = {
-        "host": request.form.get("host", "").strip(), "port": port,
+        "host": request.form.get("host", "").strip(),
+        "port": port,
         "protocol": request.form.get("protocol", "imap").lower(),
         "username": request.form.get("username", "").strip(),
         "password": request.form.get("password", ""),
         "recipient": request.form.get("recipient", "").strip(),
         "keep": request.form.get("keep") == "on",
+        "verify_certificate": request.form.get("verify_certificate") == "on",
     }
     if not 1 <= port <= 65535 or account["protocol"] not in {"imap", "pop3"}:
         raise ValueError("Invalid provider protocol or port.")
@@ -121,31 +130,64 @@ def parse_form(require_password=True):
 
 
 def retained_form():
-    return {"host": request.form.get("host", ""), "port": request.form.get("port", "993"), "protocol": request.form.get("protocol", "imap"), "username": request.form.get("username", ""), "recipient": request.form.get("recipient", ""), "keep": request.form.get("keep", "on") == "on"}
+    return {
+        "host": request.form.get("host", ""),
+        "port": request.form.get("port", "993"),
+        "protocol": request.form.get("protocol", "imap"),
+        "username": request.form.get("username", ""),
+        "recipient": request.form.get("recipient", ""),
+        "keep": request.form.get("keep", "on") == "on",
+        "verify_certificate": request.form.get("verify_certificate", "on") == "on",
+    }
 
 
 def render_page(form=None):
     settings = load_settings()
-    return render_template_string(HTML, accounts=settings["accounts"], generated=generate_fetchmail(settings["accounts"]), fetchmail_file=str(FETCHMAIL_FILE), exchange_host=os.environ.get("EXCHANGE_HOST", "not configured"), exchange_port=os.environ.get("EXCHANGE_PORT", "25"), poll_interval=os.environ.get("FETCHMAIL_POLL_INTERVAL", "60"), form=form or {"host":"","port":"993","protocol":"imap","username":"","recipient":"","keep":True})
+    default_form = {"host":"", "port":"993", "protocol":"imap", "username":"", "recipient":"", "keep":True, "verify_certificate":True}
+    return render_template_string(
+        HTML,
+        accounts=settings["accounts"],
+        generated=generate_fetchmail(settings["accounts"]),
+        fetchmail_file=str(FETCHMAIL_FILE),
+        exchange_host=os.environ.get("EXCHANGE_HOST", "not configured"),
+        exchange_port=os.environ.get("EXCHANGE_PORT", "25"),
+        poll_interval=os.environ.get("FETCHMAIL_POLL_INTERVAL", "60"),
+        form=form or default_form,
+    )
 
 
 @app.get("/health")
-def health(): return {"status": "ok"}
+def health():
+    return {"status": "ok"}
+
 
 @app.get("/")
 @requires_auth
-def index(): return render_page()
+def index():
+    return render_page()
+
 
 @app.post("/accounts/test-provider")
 @requires_auth
 def test_provider_route():
     form = retained_form()
     try:
-        a = parse_form()
-        flash(test_provider(a["host"], a["port"], a["protocol"], a["username"], a["password"]), "success")
+        account = parse_form()
+        flash(
+            test_provider(
+                account["host"],
+                account["port"],
+                account["protocol"],
+                account["username"],
+                account["password"],
+                account["verify_certificate"],
+            ),
+            "success",
+        )
     except Exception as exc:
         flash(f"Provider test failed: {exc}", "error")
     return render_page(form)
+
 
 @app.post("/accounts/test-exchange")
 @requires_auth
@@ -153,11 +195,13 @@ def test_exchange_route():
     form = retained_form()
     try:
         recipient = request.form.get("recipient", "").strip()
-        if not recipient: raise ValueError("Exchange recipient is required.")
+        if not recipient:
+            raise ValueError("Exchange recipient is required.")
         flash(test_exchange(recipient), "success")
     except Exception as exc:
         flash(f"Exchange test failed: {exc}", "error")
     return render_page(form)
+
 
 @app.post("/accounts")
 @requires_auth
@@ -167,15 +211,20 @@ def add_account():
     except ValueError as exc:
         flash(str(exc), "error")
         return render_page(retained_form()), 400
-    settings = load_settings(); settings["accounts"].append(account); save_settings(settings)
+    settings = load_settings()
+    settings["accounts"].append(account)
+    save_settings(settings)
     flash("Mailbox saved and Fetchmail configuration regenerated.", "success")
     return redirect(url_for("index"))
+
 
 @app.post("/accounts/<int:index>/delete")
 @requires_auth
 def delete_account(index):
     settings = load_settings()
-    if index < 0 or index >= len(settings["accounts"]): return "Mailbox not found", 404
-    settings["accounts"].pop(index); save_settings(settings)
+    if index < 0 or index >= len(settings["accounts"]):
+        return "Mailbox not found", 404
+    settings["accounts"].pop(index)
+    save_settings(settings)
     flash("Mailbox removed and configuration regenerated.", "success")
     return redirect(url_for("index"))
