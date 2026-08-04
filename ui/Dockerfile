@@ -3,7 +3,7 @@ FROM python:3.13-alpine
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app_clean.py bootstrap.py activity_log.py av_status.py rspamd_config_fix.py connection_tests.py auth_store.py ./
+COPY app_clean.py bootstrap.py activity_log.py av_status.py av_update.py rspamd_config_fix.py connection_tests.py auth_store.py ./
 
 RUN addgroup -S mailgate && adduser -S -G mailgate mailgate
 USER mailgate
