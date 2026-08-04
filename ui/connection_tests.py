@@ -1,5 +1,4 @@
 import imaplib
-import os
 import poplib
 import smtplib
 import ssl
@@ -21,8 +20,6 @@ def test_provider(host, port, protocol, username, password, verify_certificate=T
     if protocol == "imap":
         client = imaplib.IMAP4_SSL(host, port, ssl_context=context, timeout=TIMEOUT)
         try:
-            # imaplib defaults to ASCII for commands. Some providers accept UTF-8
-            # mailbox credentials, so explicitly encode LOGIN commands as UTF-8.
             client._encoding = "utf-8"
             client.login(username, password)
             status, data = client.select("INBOX", readonly=True)
@@ -37,9 +34,8 @@ def test_provider(host, port, protocol, username, password, verify_certificate=T
 
     client = poplib.POP3_SSL(host, port, context=context, timeout=TIMEOUT)
     try:
-        client.encoding = "utf-8"
-        client.user(username)
-        client.pass_(password)
+        client._putcmd("USER", username.encode("utf-8"))
+        client._putcmd("PASS", password.encode("utf-8"))
         count, size = client.stat()
         suffix = " Certificate verification was disabled." if not verify_certificate else ""
         return f"Provider login successful. POP3 reports {count} messages and {size} bytes.{suffix}"
@@ -50,14 +46,10 @@ def test_provider(host, port, protocol, username, password, verify_certificate=T
             pass
 
 
-def test_exchange(recipient):
-    host = os.environ.get("EXCHANGE_HOST", "").strip()
+def test_exchange(host, port, recipient, sender="mailgate-test@localhost"):
     if not host:
-        raise ValueError("EXCHANGE_HOST is not configured.")
-    port = int(os.environ.get("EXCHANGE_PORT", "25"))
-    sender = os.environ.get("TEST_SENDER", "mailgate-test@localhost")
-
-    client = smtplib.SMTP(host, port, timeout=TIMEOUT)
+        raise ValueError("Target SMTP server is not configured.")
+    client = smtplib.SMTP(host, int(port), timeout=TIMEOUT)
     try:
         code, reply = client.ehlo("mailgate-test")
         if code >= 400:
@@ -70,7 +62,7 @@ def test_exchange(recipient):
         client.rset()
         if code not in {250, 251, 252}:
             raise RuntimeError(f"Recipient rejected: {code} {reply_text}")
-        return f"Exchange accepted {recipient} with SMTP response {code}. No message was sent."
+        return f"Target server accepted {recipient} with SMTP response {code}. No message was sent."
     finally:
         try:
             client.quit()
