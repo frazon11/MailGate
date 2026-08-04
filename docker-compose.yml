@@ -45,6 +45,20 @@ services:
       retries: 5
       start_period: 3m
 
+  fetchtrigger:
+    build:
+      context: ./fetch-trigger
+    container_name: mailgate-fetchtrigger
+    restart: unless-stopped
+    pid: "service:mailserver"
+    environment:
+      TZ: ${TZ:-Europe/Brussels}
+      CONTROL_DIR: /control
+    volumes:
+      - ${DATA_PATH:-/volume1/docker/MailGate}/config/fetch-now:/control
+    depends_on:
+      - mailserver
+
   avupdater:
     build:
       context: ./av-updater
@@ -90,8 +104,8 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Europe/Brussels}
-      MAILGATE_VERSION: ${MAILGATE_VERSION:-0.2.6}
-      MAILGATE_BUILD: ${MAILGATE_BUILD:-20260804.11}
+      MAILGATE_VERSION: ${MAILGATE_VERSION:-0.2.7}
+      MAILGATE_BUILD: ${MAILGATE_BUILD:-20260805.12}
       UI_USERNAME: ${UI_USERNAME:-admin}
       UI_PASSWORD: ${UI_PASSWORD:-change-me-now}
       EXCHANGE_HOST: ${EXCHANGE_HOST}
@@ -100,6 +114,7 @@ services:
       CONFIG_PATH: /data/config
       CLAMAV_STATE_PATH: /data/mail-state
       AV_UPDATE_CONTROL_PATH: /data/config/av-update
+      FETCH_NOW_CONTROL_PATH: /data/config/fetch-now
       DOCKER_API_URL: http://dockerproxy:2375
       MAILSERVER_CONTAINER: mailgate-mailserver
     volumes:
@@ -111,6 +126,7 @@ services:
       - mailgate
     depends_on:
       - mailserver
+      - fetchtrigger
       - avupdater
       - dockerproxy
 
