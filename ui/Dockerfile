@@ -6,9 +6,11 @@ ARG MAILGATE_BUILD=dev
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app_v2.py connection_tests.py auth_store.py apply_admin_password_patch.py ./
+COPY app_v2.py connection_tests.py auth_store.py apply_admin_password_patch.py apply_logs_patch.py ./
 
-RUN python /app/apply_admin_password_patch.py && rm /app/apply_admin_password_patch.py
+RUN python /app/apply_admin_password_patch.py \
+ && python /app/apply_logs_patch.py \
+ && rm /app/apply_admin_password_patch.py /app/apply_logs_patch.py
 
 RUN sed -i "s|<h1>MailGate</h1>|<h1>MailGate <span style=\"font-size:.45em;color:#9ca3af;font-weight:500\">v${MAILGATE_VERSION} · build ${MAILGATE_BUILD}</span></h1>|" /app/app_v2.py
 
