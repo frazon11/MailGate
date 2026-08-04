@@ -51,7 +51,7 @@ services:
     build:
       context: ./ui
       args:
-        MAILGATE_VERSION: ${MAILGATE_VERSION:-0.1.1}
+        MAILGATE_VERSION: ${MAILGATE_VERSION:-0.1.2}
         MAILGATE_BUILD: ${MAILGATE_BUILD:-dev}
     container_name: mailgate-ui
     user: "${PUID:-1026}:${PGID:-100}"
