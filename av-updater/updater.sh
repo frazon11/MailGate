@@ -3,12 +3,13 @@ set -u
 
 CONTROL_DIR="${CONTROL_DIR:-/control}"
 STATE_ROOT="${CLAMAV_STATE_ROOT:-/var/mail-state}"
+CLAMAV_UID="${CLAMAV_UID:-100}"
+CLAMAV_GID="${CLAMAV_GID:-101}"
 REQUEST_FILE="$CONTROL_DIR/av-update.request"
 STATUS_FILE="$CONTROL_DIR/av-update-status.json"
 LOG_FILE="$CONTROL_DIR/av-update.log"
 
 mkdir -p "$CONTROL_DIR"
-chmod 0777 "$CONTROL_DIR"
 
 json_escape() {
   sed 's/\\/\\\\/g; s/"/\\"/g; s/\r//g' | awk 'BEGIN{ORS="\\n"}{printf "%s\\n",$0}' | sed 's/\\n$//'
@@ -31,7 +32,7 @@ write_status() {
   "message": "$escaped_message"
 }
 EOF
-  chmod 0666 "$tmp"
+  chmod 0664 "$tmp"
   mv "$tmp" "$STATUS_FILE"
 }
 
@@ -42,9 +43,21 @@ find_database_dir() {
     return 0
   fi
 
-  fallback="$STATE_ROOT/lib/clamav"
+  fallback="$STATE_ROOT/lib-clamav"
   mkdir -p "$fallback"
   printf '%s\n' "$fallback"
+}
+
+prepare_database_dir() {
+  database_dir="$1"
+  mkdir -p "$database_dir"
+
+  # FreshClam drops privileges to its internal clamav account. The persistent
+  # Synology bind mount must therefore be writable by that numeric UID/GID.
+  chown -R "$CLAMAV_UID:$CLAMAV_GID" "$database_dir"
+  chmod 0775 "$database_dir"
+  find "$database_dir" -type d -exec chmod 0775 {} \; 2>/dev/null || true
+  find "$database_dir" -type f -exec chmod 0664 {} \; 2>/dev/null || true
 }
 
 write_status "idle" "" "" 0 "Waiting for an update request."
@@ -56,15 +69,24 @@ while true; do
     rm -f "$REQUEST_FILE"
     started=$(date -Iseconds)
     database_dir=$(find_database_dir)
-    write_status "running" "$started" "" 0 "Updating ClamAV signatures in $database_dir"
 
+    if ! prepare_database_dir "$database_dir" > "$LOG_FILE" 2>&1; then
+      rc=$?
+      finished=$(date -Iseconds)
+      tail_output=$(tail -n 30 "$LOG_FILE" 2>/dev/null || true)
+      write_status "error" "$started" "$finished" "$rc" "Could not prepare ClamAV database directory $database_dir.\n$tail_output"
+      sleep 2
+      continue
+    fi
+
+    write_status "running" "$started" "" 0 "Updating ClamAV signatures in $database_dir"
     : > "$LOG_FILE"
-    chmod 0666 "$LOG_FILE"
+    chmod 0664 "$LOG_FILE"
 
     freshclam --verbose --datadir="$database_dir" > "$LOG_FILE" 2>&1
     rc=$?
     finished=$(date -Iseconds)
-    tail_output=$(tail -n 30 "$LOG_FILE" 2>/dev/null || true)
+    tail_output=$(tail -n 40 "$LOG_FILE" 2>/dev/null || true)
 
     if [ "$rc" -eq 0 ]; then
       write_status "success" "$started" "$finished" "$rc" "$tail_output"
