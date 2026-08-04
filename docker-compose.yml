@@ -12,7 +12,6 @@ services:
       FETCHMAIL_POLL: ${FETCHMAIL_POLL_INTERVAL:-60}
       FETCHMAIL_PARALLEL: "0"
       DMS_CONFIG_POLL: "10"
-
       ENABLE_RSPAMD: "1"
       ENABLE_RSPAMD_REDIS: "1"
       ENABLE_CLAMAV: "1"
@@ -24,7 +23,6 @@ services:
       ENABLE_POSTGREY: "0"
       RSPAMD_GREYLISTING: "0"
       SPAM_SUBJECT: "[SPAM] "
-
       ENABLE_IMAP: "0"
       ENABLE_POP3: "0"
       ENABLE_FAIL2BAN: "0"
@@ -46,6 +44,21 @@ services:
       timeout: 5s
       retries: 5
       start_period: 3m
+
+  avupdater:
+    build:
+      context: ./av-updater
+    container_name: mailgate-avupdater
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Brussels}
+      CONTROL_DIR: /control
+      CLAMAV_STATE_ROOT: /var/mail-state
+    volumes:
+      - ${DATA_PATH:-/volume1/docker/MailGate}/config/av-update:/control
+      - ${DATA_PATH:-/volume1/docker/MailGate}/mail-state:/var/mail-state
+    networks:
+      - mailgate
 
   dockerproxy:
     image: ghcr.io/tecnativa/docker-socket-proxy:v0.4.2
@@ -75,8 +88,8 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Europe/Brussels}
-      MAILGATE_VERSION: ${MAILGATE_VERSION:-0.2.2}
-      MAILGATE_BUILD: ${MAILGATE_BUILD:-20260804.7}
+      MAILGATE_VERSION: ${MAILGATE_VERSION:-0.2.3}
+      MAILGATE_BUILD: ${MAILGATE_BUILD:-20260804.8}
       UI_USERNAME: ${UI_USERNAME:-admin}
       UI_PASSWORD: ${UI_PASSWORD:-change-me-now}
       EXCHANGE_HOST: ${EXCHANGE_HOST}
@@ -84,6 +97,7 @@ services:
       FETCHMAIL_POLL_INTERVAL: ${FETCHMAIL_POLL_INTERVAL:-60}
       CONFIG_PATH: /data/config
       CLAMAV_STATE_PATH: /data/mail-state
+      AV_UPDATE_CONTROL_PATH: /data/config/av-update
       DOCKER_API_URL: http://dockerproxy:2375
       MAILSERVER_CONTAINER: mailgate-mailserver
     volumes:
@@ -95,6 +109,7 @@ services:
       - mailgate
     depends_on:
       - mailserver
+      - avupdater
       - dockerproxy
 
 networks:
