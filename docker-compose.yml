@@ -7,6 +7,7 @@ services:
     environment:
       TZ: ${TZ:-Europe/Brussels}
       OVERRIDE_HOSTNAME: ${MAILGATE_HOSTNAME:-mailgate.local}
+      SMTP_ONLY: "1"
       ENABLE_FETCHMAIL: "1"
       FETCHMAIL_POLL: ${FETCHMAIL_POLL_INTERVAL:-60}
       FETCHMAIL_PARALLEL: "0"
