@@ -3,6 +3,7 @@ import os
 from flask import Response, flash, redirect, render_template_string, request, url_for
 
 import app_clean
+import rspamd_config_fix  # repairs old invalid files and replaces the settings generator
 from activity_log import bp as activity_log_blueprint
 from auth_store import verify_admin
 from av_status import read_clamav_status
