@@ -10,7 +10,7 @@ services:
       EXCHANGE_PORT: ${EXCHANGE_PORT:-25}
       ALLOWED_RECIPIENT_DOMAINS: ${ALLOWED_RECIPIENT_DOMAINS}
     volumes:
-      - ./postfix/spool:/var/spool/postfix
+      - ${DATA_PATH:-/volume1/docker/MailGate}/postfix/spool:/var/spool/postfix
     networks:
       - mailgate
     depends_on:
@@ -24,7 +24,7 @@ services:
       TZ: ${TZ:-Europe/Brussels}
       FETCHMAIL_POLL_INTERVAL: ${FETCHMAIL_POLL_INTERVAL:-60}
     volumes:
-      - ./fetchmail/fetchmailrc:/etc/fetchmailrc:ro
+      - ${DATA_PATH:-/volume1/docker/MailGate}/fetchmail/fetchmailrc:/etc/fetchmailrc:ro
     networks:
       - mailgate
     depends_on:
@@ -39,6 +39,7 @@ services:
     volumes:
       - ./rspamd/local.d:/etc/rspamd/local.d:ro
       - ./rspamd/override.d:/etc/rspamd/override.d:ro
+      - ${DATA_PATH:-/volume1/docker/MailGate}/rspamd/data:/var/lib/rspamd
     networks:
       - mailgate
     depends_on:
@@ -51,7 +52,7 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
-      - ./redis/data:/data
+      - ${DATA_PATH:-/volume1/docker/MailGate}/redis/data:/data
     networks:
       - mailgate
 
@@ -62,7 +63,7 @@ services:
     environment:
       TZ: ${TZ:-Europe/Brussels}
     volumes:
-      - ./clamav/database:/var/lib/clamav
+      - ${DATA_PATH:-/volume1/docker/MailGate}/clamav/database:/var/lib/clamav
     networks:
       - mailgate
 
