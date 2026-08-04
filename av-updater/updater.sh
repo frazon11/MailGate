@@ -8,9 +8,10 @@ STATUS_FILE="$CONTROL_DIR/av-update-status.json"
 LOG_FILE="$CONTROL_DIR/av-update.log"
 
 mkdir -p "$CONTROL_DIR"
+chmod 0777 "$CONTROL_DIR"
 
 json_escape() {
-  sed 's/\\/\\\\/g; s/"/\\"/g; s///g' | awk 'BEGIN{ORS="\\n"}{printf "%s\\n",$0}' | sed 's/\\n$//'
+  sed 's/\\/\\\\/g; s/"/\\"/g; s/\r//g' | awk 'BEGIN{ORS="\\n"}{printf "%s\\n",$0}' | sed 's/\\n$//'
 }
 
 write_status() {
@@ -30,7 +31,7 @@ write_status() {
   "message": "$escaped_message"
 }
 EOF
-  chmod 0644 "$tmp"
+  chmod 0666 "$tmp"
   mv "$tmp" "$STATUS_FILE"
 }
 
@@ -58,7 +59,7 @@ while true; do
     write_status "running" "$started" "" 0 "Updating ClamAV signatures in $database_dir"
 
     : > "$LOG_FILE"
-    chmod 0644 "$LOG_FILE"
+    chmod 0666 "$LOG_FILE"
 
     freshclam --verbose --datadir="$database_dir" > "$LOG_FILE" 2>&1
     rc=$?
