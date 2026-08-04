@@ -54,16 +54,18 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Europe/Brussels}
-      MAILGATE_VERSION: ${MAILGATE_VERSION:-0.2.0}
-      MAILGATE_BUILD: ${MAILGATE_BUILD:-20260804.5}
+      MAILGATE_VERSION: ${MAILGATE_VERSION:-0.2.1}
+      MAILGATE_BUILD: ${MAILGATE_BUILD:-20260804.6}
       UI_USERNAME: ${UI_USERNAME:-admin}
       UI_PASSWORD: ${UI_PASSWORD:-change-me-now}
       EXCHANGE_HOST: ${EXCHANGE_HOST}
       EXCHANGE_PORT: ${EXCHANGE_PORT:-25}
       FETCHMAIL_POLL_INTERVAL: ${FETCHMAIL_POLL_INTERVAL:-60}
       CONFIG_PATH: /data/config
+      CLAMAV_STATE_PATH: /data/mail-state
     volumes:
       - ${DATA_PATH:-/volume1/docker/MailGate}/config:/data/config
+      - ${DATA_PATH:-/volume1/docker/MailGate}/mail-state:/data/mail-state:ro
     ports:
       - ${WEB_PORT:-8795}:8080
     networks:
