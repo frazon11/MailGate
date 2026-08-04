@@ -21,6 +21,9 @@ def test_provider(host, port, protocol, username, password, verify_certificate=T
     if protocol == "imap":
         client = imaplib.IMAP4_SSL(host, port, ssl_context=context, timeout=TIMEOUT)
         try:
+            # imaplib defaults to ASCII for commands. Some providers accept UTF-8
+            # mailbox credentials, so explicitly encode LOGIN commands as UTF-8.
+            client._encoding = "utf-8"
             client.login(username, password)
             status, data = client.select("INBOX", readonly=True)
             count = data[0].decode(errors="replace") if status == "OK" and data else "unknown"
@@ -34,6 +37,7 @@ def test_provider(host, port, protocol, username, password, verify_certificate=T
 
     client = poplib.POP3_SSL(host, port, context=context, timeout=TIMEOUT)
     try:
+        client.encoding = "utf-8"
         client.user(username)
         client.pass_(password)
         count, size = client.stat()
