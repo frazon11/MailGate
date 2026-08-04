@@ -48,7 +48,11 @@ services:
       start_period: 3m
 
   ui:
-    build: ./ui
+    build:
+      context: ./ui
+      args:
+        MAILGATE_VERSION: ${MAILGATE_VERSION:-0.1.0}
+        MAILGATE_BUILD: ${MAILGATE_BUILD:-dev}
     container_name: mailgate-ui
     restart: unless-stopped
     environment:
