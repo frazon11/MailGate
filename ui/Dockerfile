@@ -6,7 +6,9 @@ ARG MAILGATE_BUILD=dev
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app_v2.py connection_tests.py ./
+COPY app_v2.py connection_tests.py auth_store.py apply_admin_password_patch.py ./
+
+RUN python /app/apply_admin_password_patch.py && rm /app/apply_admin_password_patch.py
 
 RUN python - <<'PY'
 from pathlib import Path
