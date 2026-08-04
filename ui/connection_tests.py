@@ -7,15 +7,25 @@ import ssl
 TIMEOUT = 15
 
 
-def test_provider(host, port, protocol, username, password):
-    context = ssl.create_default_context()
+def _tls_context(verify_certificate=True):
+    if verify_certificate:
+        return ssl.create_default_context()
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return context
+
+
+def test_provider(host, port, protocol, username, password, verify_certificate=True):
+    context = _tls_context(verify_certificate)
     if protocol == "imap":
         client = imaplib.IMAP4_SSL(host, port, ssl_context=context, timeout=TIMEOUT)
         try:
             client.login(username, password)
             status, data = client.select("INBOX", readonly=True)
             count = data[0].decode(errors="replace") if status == "OK" and data else "unknown"
-            return f"Provider login successful. INBOX is accessible; message count: {count}."
+            suffix = " Certificate verification was disabled." if not verify_certificate else ""
+            return f"Provider login successful. INBOX is accessible; message count: {count}.{suffix}"
         finally:
             try:
                 client.logout()
@@ -27,7 +37,8 @@ def test_provider(host, port, protocol, username, password):
         client.user(username)
         client.pass_(password)
         count, size = client.stat()
-        return f"Provider login successful. POP3 reports {count} messages and {size} bytes."
+        suffix = " Certificate verification was disabled." if not verify_certificate else ""
+        return f"Provider login successful. POP3 reports {count} messages and {size} bytes.{suffix}"
     finally:
         try:
             client.quit()
