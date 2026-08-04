@@ -1,0 +1,71 @@
+services:
+  postfix:
+    build: ./postfix
+    container_name: mailgate-postfix
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Brussels}
+      MAILGATE_HOSTNAME: ${MAILGATE_HOSTNAME:-mailgate.local}
+      EXCHANGE_HOST: ${EXCHANGE_HOST}
+      EXCHANGE_PORT: ${EXCHANGE_PORT:-25}
+      ALLOWED_RECIPIENT_DOMAINS: ${ALLOWED_RECIPIENT_DOMAINS}
+    volumes:
+      - ./postfix/spool:/var/spool/postfix
+    networks:
+      - mailgate
+    depends_on:
+      - rspamd
+
+  fetchmail:
+    build: ./fetchmail
+    container_name: mailgate-fetchmail
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Brussels}
+      FETCHMAIL_POLL_INTERVAL: ${FETCHMAIL_POLL_INTERVAL:-60}
+    volumes:
+      - ./fetchmail/fetchmailrc:/etc/fetchmailrc:ro
+    networks:
+      - mailgate
+    depends_on:
+      - postfix
+
+  rspamd:
+    image: rspamd/rspamd:latest
+    container_name: mailgate-rspamd
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Brussels}
+    volumes:
+      - ./rspamd/local.d:/etc/rspamd/local.d:ro
+      - ./rspamd/override.d:/etc/rspamd/override.d:ro
+    networks:
+      - mailgate
+    depends_on:
+      - redis
+      - clamav
+
+  redis:
+    image: redis:7-alpine
+    container_name: mailgate-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - ./redis/data:/data
+    networks:
+      - mailgate
+
+  clamav:
+    image: clamav/clamav:stable
+    container_name: mailgate-clamav
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Brussels}
+    volumes:
+      - ./clamav/database:/var/lib/clamav
+    networks:
+      - mailgate
+
+networks:
+  mailgate:
+    driver: bridge
