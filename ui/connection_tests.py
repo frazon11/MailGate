@@ -34,8 +34,10 @@ def test_provider(host, port, protocol, username, password, verify_certificate=T
 
     client = poplib.POP3_SSL(host, port, context=context, timeout=TIMEOUT)
     try:
-        client._putcmd("USER", username.encode("utf-8"))
-        client._putcmd("PASS", password.encode("utf-8"))
+        client._putline(b"USER " + username.encode("utf-8"))
+        client._getresp()
+        client._putline(b"PASS " + password.encode("utf-8"))
+        client._getresp()
         count, size = client.stat()
         suffix = " Certificate verification was disabled." if not verify_certificate else ""
         return f"Provider login successful. POP3 reports {count} messages and {size} bytes.{suffix}"
@@ -49,6 +51,8 @@ def test_provider(host, port, protocol, username, password, verify_certificate=T
 def test_exchange(host, port, recipient, sender="mailgate-test@localhost"):
     if not host:
         raise ValueError("Target SMTP server is not configured.")
+    if not recipient:
+        raise ValueError("Target recipient is required.")
     client = smtplib.SMTP(host, int(port), timeout=TIMEOUT)
     try:
         code, reply = client.ehlo("mailgate-test")
