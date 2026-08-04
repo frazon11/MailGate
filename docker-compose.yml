@@ -1,71 +1,72 @@
 services:
-  postfix:
-    build: ./postfix
-    container_name: mailgate-postfix
+  mailserver:
+    image: ghcr.io/docker-mailserver/docker-mailserver:latest
+    container_name: mailgate-mailserver
+    hostname: ${MAILGATE_HOSTNAME:-mailgate.local}
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Europe/Brussels}
-      MAILGATE_HOSTNAME: ${MAILGATE_HOSTNAME:-mailgate.local}
+      OVERRIDE_HOSTNAME: ${MAILGATE_HOSTNAME:-mailgate.local}
+      ENABLE_FETCHMAIL: "1"
+      FETCHMAIL_POLL: ${FETCHMAIL_POLL_INTERVAL:-60}
+      FETCHMAIL_PARALLEL: "0"
+      DMS_CONFIG_POLL: "10"
+
+      ENABLE_RSPAMD: "1"
+      ENABLE_RSPAMD_REDIS: "1"
+      ENABLE_CLAMAV: "1"
+      ENABLE_OPENDKIM: "0"
+      ENABLE_OPENDMARC: "0"
+      ENABLE_POLICYD_SPF: "0"
+      ENABLE_AMAVIS: "0"
+      ENABLE_SPAMASSASSIN: "0"
+      ENABLE_POSTGREY: "0"
+      RSPAMD_GREYLISTING: "0"
+      SPAM_SUBJECT: "[SPAM] "
+
+      ENABLE_IMAP: "0"
+      ENABLE_POP3: "0"
+      ENABLE_FAIL2BAN: "0"
+      ENABLE_QUOTAS: "0"
+      ONE_DIR: "1"
+      PERMIT_DOCKER: connected-networks
+      POSTFIX_INET_PROTOCOLS: ipv4
+      DEFAULT_RELAY_HOST: "[${EXCHANGE_HOST}]:${EXCHANGE_PORT:-25}"
+    volumes:
+      - ${DATA_PATH:-/volume1/docker/MailGate}/config:/tmp/docker-mailserver
+      - ${DATA_PATH:-/volume1/docker/MailGate}/mail-data:/var/mail
+      - ${DATA_PATH:-/volume1/docker/MailGate}/mail-state:/var/mail-state
+      - ${DATA_PATH:-/volume1/docker/MailGate}/mail-logs:/var/log/mail
+    networks:
+      - mailgate
+    stop_grace_period: 1m
+    healthcheck:
+      test: ["CMD-SHELL", "ss --listening --tcp | grep -P 'LISTEN.+:smtp' >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 3m
+
+  ui:
+    build: ./ui
+    container_name: mailgate-ui
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Brussels}
+      UI_USERNAME: ${UI_USERNAME:-admin}
+      UI_PASSWORD: ${UI_PASSWORD:-change-me-now}
       EXCHANGE_HOST: ${EXCHANGE_HOST}
       EXCHANGE_PORT: ${EXCHANGE_PORT:-25}
-      ALLOWED_RECIPIENT_DOMAINS: ${ALLOWED_RECIPIENT_DOMAINS}
-    volumes:
-      - ${DATA_PATH:-/volume1/docker/MailGate}/postfix/spool:/var/spool/postfix
-    networks:
-      - mailgate
-    depends_on:
-      - rspamd
-
-  fetchmail:
-    build: ./fetchmail
-    container_name: mailgate-fetchmail
-    restart: unless-stopped
-    environment:
-      TZ: ${TZ:-Europe/Brussels}
       FETCHMAIL_POLL_INTERVAL: ${FETCHMAIL_POLL_INTERVAL:-60}
+      CONFIG_PATH: /data/config
     volumes:
-      - ${DATA_PATH:-/volume1/docker/MailGate}/fetchmail/fetchmailrc:/etc/fetchmailrc:ro
+      - ${DATA_PATH:-/volume1/docker/MailGate}/config:/data/config
+    ports:
+      - ${WEB_PORT:-8795}:8080
     networks:
       - mailgate
     depends_on:
-      - postfix
-
-  rspamd:
-    image: rspamd/rspamd:latest
-    container_name: mailgate-rspamd
-    restart: unless-stopped
-    environment:
-      TZ: ${TZ:-Europe/Brussels}
-    volumes:
-      - ./rspamd/local.d:/etc/rspamd/local.d:ro
-      - ./rspamd/override.d:/etc/rspamd/override.d:ro
-      - ${DATA_PATH:-/volume1/docker/MailGate}/rspamd/data:/var/lib/rspamd
-    networks:
-      - mailgate
-    depends_on:
-      - redis
-      - clamav
-
-  redis:
-    image: redis:7-alpine
-    container_name: mailgate-redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - ${DATA_PATH:-/volume1/docker/MailGate}/redis/data:/data
-    networks:
-      - mailgate
-
-  clamav:
-    image: clamav/clamav:stable
-    container_name: mailgate-clamav
-    restart: unless-stopped
-    environment:
-      TZ: ${TZ:-Europe/Brussels}
-    volumes:
-      - ${DATA_PATH:-/volume1/docker/MailGate}/clamav/database:/var/lib/clamav
-    networks:
-      - mailgate
+      - mailserver
 
 networks:
   mailgate:
