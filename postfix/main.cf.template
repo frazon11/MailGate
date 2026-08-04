@@ -1,0 +1,20 @@
+compatibility_level = 3.6
+myhostname = ${MAILGATE_HOSTNAME}
+inet_interfaces = all
+inet_protocols = ipv4
+mydestination =
+relayhost = [${EXCHANGE_HOST}]:${EXCHANGE_PORT}
+
+mynetworks = 127.0.0.0/8 172.16.0.0/12
+smtpd_recipient_restrictions = permit_mynetworks,reject_unauth_destination
+relay_domains = ${ALLOWED_RECIPIENT_DOMAINS}
+
+smtpd_milters = inet:rspamd:11332
+non_smtpd_milters = inet:rspamd:11332
+milter_protocol = 6
+milter_default_action = tempfail
+
+message_size_limit = 52428800
+mailbox_size_limit = 0
+maximal_queue_lifetime = 5d
+bounce_queue_lifetime = 1d
