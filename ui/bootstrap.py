@@ -3,10 +3,30 @@ import os
 from flask import Response, flash, redirect, render_template_string, request, url_for
 
 import app_clean
+from activity_log import bp as activity_log_blueprint
 from auth_store import verify_admin
 from av_status import read_clamav_status
 
 app = app_clean.app
+
+
+def _nav_with_activity(active):
+    items = [
+        ("dashboard", "Dashboard", "/"),
+        ("accounts", "Accounts & Delivery", "/accounts"),
+        ("spam", "Spam Protection", "/spam"),
+        ("antivirus", "Antivirus", "/antivirus"),
+        ("activity", "Activity Log", "/activity"),
+        ("security", "Security / Profile", "/security"),
+    ]
+    return "".join(
+        f'<a class="{"active" if key == active else ""}" href="{href}">{label}</a>'
+        for key, label, href in items
+    )
+
+
+app_clean.nav = _nav_with_activity
+app.register_blueprint(activity_log_blueprint)
 
 AV_BODY = """
 <div class="card"><form method="post"><div class="grid"><label><input type="checkbox" name="antivirus_enabled" {% if f.antivirus_enabled %}checked{% endif %}>Enable ClamAV scanning</label><label>Malware action<select name="malware_action"><option value="reject" {% if f.malware_action=='reject' %}selected{% endif %}>Reject</option><option value="tag" {% if f.malware_action=='tag' %}selected{% endif %}>Tag and deliver</option><option value="quarantine" {% if f.malware_action=='quarantine' %}selected{% endif %}>Quarantine</option></select></label><label>Maximum file size (MB)<input type="number" name="max_file_size_mb" value="{{ f.max_file_size_mb }}"></label><label>Maximum scan size (MB)<input type="number" name="max_scan_size_mb" value="{{ f.max_scan_size_mb }}"></label><label>Scan timeout (seconds)<input type="number" name="scan_timeout_seconds" value="{{ f.scan_timeout_seconds }}"></label></div><button>Save antivirus settings</button></form></div>
