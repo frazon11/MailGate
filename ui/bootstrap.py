@@ -7,6 +7,7 @@ import rspamd_config_fix  # repairs old invalid files and replaces the settings 
 from activity_log import bp as activity_log_blueprint
 from auth_store import verify_admin
 from av_status import read_clamav_status
+from av_update import read_update_status, request_update
 
 app = app_clean.app
 
@@ -30,18 +31,19 @@ app_clean.nav = _nav_with_activity
 app.register_blueprint(activity_log_blueprint)
 
 AV_BODY = """
-<div class="card"><form method="post"><div class="grid"><label><input type="checkbox" name="antivirus_enabled" {% if f.antivirus_enabled %}checked{% endif %}>Enable ClamAV scanning</label><label>Malware action<select name="malware_action"><option value="reject" {% if f.malware_action=='reject' %}selected{% endif %}>Reject</option><option value="tag" {% if f.malware_action=='tag' %}selected{% endif %}>Tag and deliver</option><option value="quarantine" {% if f.malware_action=='quarantine' %}selected{% endif %}>Quarantine</option></select></label><label>Maximum file size (MB)<input type="number" name="max_file_size_mb" value="{{ f.max_file_size_mb }}"></label><label>Maximum scan size (MB)<input type="number" name="max_scan_size_mb" value="{{ f.max_scan_size_mb }}"></label><label>Scan timeout (seconds)<input type="number" name="scan_timeout_seconds" value="{{ f.scan_timeout_seconds }}"></label></div><button>Save antivirus settings</button></form></div>
+<div class="card"><form method="post"><div class="grid"><label><input type="checkbox" name="antivirus_enabled" {% if f.antivirus_enabled %}checked{% endif %}>Enable ClamAV scanning</label><label>Malware action<select name="malware_action"><option value="reject" {% if f.malware_action=='reject' %}selected{% endif %}>Reject</option><option value="tag" {% if f.malware_action=='tag' %}selected{% endif %}>Tag and deliver</option><option value="quarantine" {% if f.malware_action=='quarantine' %}selected{% endif %}>Quarantine</option></select></label><label>Maximum file size (MB)<input type="number" name="max_file_size_mb" value="{{ f.max_file_size_mb }}"></label><label>Maximum scan size (MB)<input type="number" name="max_scan_size_mb" value="{{ f.max_scan_size_mb }}"></label><label>Scan timeout (seconds)<input type="number" name="scan_timeout_seconds" value="{{ f.scan_timeout_seconds }}"></label></div><div class="actions"><button name="action" value="save-settings">Save antivirus settings</button><button class="secondary" name="action" value="update-signatures">Update AV signatures now</button></div></form></div>
 <div class="grid3">
 <div class="metric"><span class="muted">Scanner configuration</span><strong>{{ 'Enabled' if f.antivirus_enabled else 'Disabled' }}</strong></div>
 <div class="metric"><span class="muted">Known signatures</span><strong>{{ status.total_signatures if status.total_signatures else 'Unavailable' }}</strong></div>
 <div class="metric"><span class="muted">Database freshness</span><strong>{{ status.freshness }}</strong></div>
 </div>
+<div class="card"><h2>Manual signature update</h2><table><tr><th>Status</th><td><span class="badge {{ 'good' if update.state=='success' else ('bad' if update.state=='error' else '') }}">{{ update.state|upper }}</span></td></tr><tr><th>Started</th><td>{{ update.started_at or '—' }}</td></tr><tr><th>Finished</th><td>{{ update.finished_at or '—' }}</td></tr><tr><th>Exit code</th><td>{{ update.exit_code }}</td></tr></table><p class="muted">{{ update.message }}</p>{% if update.log %}<details><summary>FreshClam output</summary><pre>{{ update.log }}</pre></details>{% endif %}</div>
 <div class="card"><h2>ClamAV signature databases</h2>
 {% if not status.state_available %}<p class="warn">The ClamAV state volume is not accessible at <code>{{ status.state_path }}</code>.</p>
 {% elif not status.databases %}<p class="warn">No <code>.cvd</code>, <code>.cld</code> or <code>.cud</code> signature databases were found yet. ClamAV may still be performing its first update.</p>
 {% else %}<table><thead><tr><th>Database</th><th>Version</th><th>Signatures</th><th>Built</th><th>File updated</th><th>Age</th><th>Size</th></tr></thead><tbody>{% for d in status.databases %}<tr><td><code>{{ d.name }}</code><br><span class="muted">Builder: {{ d.builder }} · F-level: {{ d.functionality_level }}</span></td><td>{{ d.version }}</td><td>{{ d.signatures if d.signatures is not none else 'Unknown' }}</td><td>{{ d.built }}</td><td>{{ d.modified }}</td><td>{{ d.age_hours }} h</td><td>{{ d.size_mb }} MB</td></tr>{% endfor %}</tbody></table>{% endif %}
 </div>
-<div class="card"><h2>Scanner runtime</h2><table><tr><th>ClamAV engine version</th><td><span class="badge">Not exposed yet</span></td></tr><tr><th>Clamd process status</th><td><span class="badge">Not exposed yet</span></td></tr><tr><th>Loaded database version</th><td><span class="badge">Not exposed yet</span></td></tr><tr><th>Persistent signature state</th><td><code>{{ status.state_path }}</code></td></tr></table><p class="muted">Signature versions and counts above are read directly from the persistent ClamAV database files. Live daemon values require a restricted internal clamd status channel; MailGate does not mount the Docker socket.</p></div>
+<div class="card"><h2>Scanner runtime</h2><table><tr><th>ClamAV engine version</th><td><span class="badge">Not exposed yet</span></td></tr><tr><th>Clamd process status</th><td><span class="badge">Not exposed yet</span></td></tr><tr><th>Loaded database version</th><td><span class="badge">Not exposed yet</span></td></tr><tr><th>Persistent signature state</th><td><code>{{ status.state_path }}</code></td></tr></table></div>
 """
 
 
@@ -59,6 +61,15 @@ def structured_antivirus_page():
 
     filters = app_clean.load_filters()
     if request.method == "POST":
+        action = request.form.get("action", "save-settings")
+        if action == "update-signatures":
+            try:
+                ok, message = request_update()
+                flash(message, "success" if ok else "warning")
+            except OSError as exc:
+                flash(f"Could not request antivirus update: {exc}", "error")
+            return redirect(url_for("antivirus"))
+
         try:
             filters.update({
                 "antivirus_enabled": request.form.get("antivirus_enabled") == "on",
@@ -81,4 +92,5 @@ def structured_antivirus_page():
         app_clean.page("Antivirus", "antivirus", AV_BODY),
         f=filters,
         status=read_clamav_status(),
+        update=read_update_status(),
     )
