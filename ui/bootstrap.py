@@ -4,6 +4,7 @@ from flask import Response, flash, redirect, render_template_string, request, ur
 
 import app_clean
 import rspamd_config_fix  # repairs old invalid files and replaces the settings generator
+from account_folders import install as install_account_folders
 from activity_log import bp as activity_log_blueprint
 from auth_store import verify_admin
 from av_status import read_clamav_status
@@ -28,6 +29,7 @@ def _nav_with_activity(active):
 
 
 app_clean.nav = _nav_with_activity
+install_account_folders()
 app.register_blueprint(activity_log_blueprint)
 
 AV_BODY = """
