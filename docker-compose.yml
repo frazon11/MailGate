@@ -36,7 +36,6 @@ services:
       - ${DATA_PATH:-/volume1/docker/MailGate}/config:/tmp/docker-mailserver
       - ${DATA_PATH:-/volume1/docker/MailGate}/mail-data:/var/mail
       - ${DATA_PATH:-/volume1/docker/MailGate}/mail-state:/var/mail-state
-      - ${DATA_PATH:-/volume1/docker/MailGate}/mail-logs:/var/log/mail
     networks:
       - mailgate
     stop_grace_period: 1m
@@ -50,24 +49,21 @@ services:
   ui:
     build:
       context: ./ui
-      args:
-        MAILGATE_VERSION: ${MAILGATE_VERSION:-0.1.2}
-        MAILGATE_BUILD: ${MAILGATE_BUILD:-hotfix}
     container_name: mailgate-ui
     user: "${PUID:-1026}:${PGID:-100}"
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Europe/Brussels}
+      MAILGATE_VERSION: ${MAILGATE_VERSION:-0.2.0}
+      MAILGATE_BUILD: ${MAILGATE_BUILD:-20260804.5}
       UI_USERNAME: ${UI_USERNAME:-admin}
       UI_PASSWORD: ${UI_PASSWORD:-change-me-now}
       EXCHANGE_HOST: ${EXCHANGE_HOST}
       EXCHANGE_PORT: ${EXCHANGE_PORT:-25}
       FETCHMAIL_POLL_INTERVAL: ${FETCHMAIL_POLL_INTERVAL:-60}
       CONFIG_PATH: /data/config
-      MAIL_LOG_PATH: /data/mail-logs
     volumes:
       - ${DATA_PATH:-/volume1/docker/MailGate}/config:/data/config
-      - ${DATA_PATH:-/volume1/docker/MailGate}/mail-logs:/data/mail-logs:ro
     ports:
       - ${WEB_PORT:-8795}:8080
     networks:
