@@ -54,6 +54,7 @@ services:
         MAILGATE_VERSION: ${MAILGATE_VERSION:-0.1.0}
         MAILGATE_BUILD: ${MAILGATE_BUILD:-dev}
     container_name: mailgate-ui
+    user: "${PUID:-1026}:${PGID:-100}"
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Europe/Brussels}
