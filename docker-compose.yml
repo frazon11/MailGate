@@ -53,14 +53,13 @@ services:
       TZ: ${TZ:-Europe/Brussels}
       MAILGATE_CONFIG: /config/mailgate.json
       CONTROL_DIR: /control
-      STATE_DB: /state/fetcher.sqlite3
+      STATE_DB: /control/fetcher.sqlite3
       SMTP_HOST: mailserver
       SMTP_PORT: "25"
       DEFAULT_POLL_INTERVAL: ${FETCHMAIL_POLL_INTERVAL:-60}
     volumes:
       - ${DATA_PATH:-/volume1/docker/MailGate}/config:/config:ro
       - ${DATA_PATH:-/volume1/docker/MailGate}/config/fetch-now:/control
-      - ${DATA_PATH:-/volume1/docker/MailGate}/fetcher-state:/state
     networks:
       - mailgate
     depends_on:
