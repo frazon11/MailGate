@@ -1,6 +1,7 @@
 FROM python:3.13-alpine
 
 WORKDIR /app
+COPY sitecustomize.py /app/sitecustomize.py
 COPY fetcher.py /app/fetcher.py
 
 RUN addgroup -S mailgate && adduser -S -G mailgate mailgate \
