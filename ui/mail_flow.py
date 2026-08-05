@@ -1,7 +1,8 @@
+import json
 import os
 import re
 from collections import OrderedDict
-from datetime import datetime
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 
 from flask import Blueprint, Response, render_template_string, request
@@ -10,8 +11,8 @@ from activity_log import CONFIG_DIR, _logs
 from auth_store import verify_admin
 
 bp = Blueprint("mail_flow", __name__)
+POLL_EVENTS_FILE = Path(os.environ.get("FETCH_NOW_CONTROL_PATH", "/data/config/fetch-now")) / "poll-events.jsonl"
 
-QUEUE_RE = re.compile(r"\b([A-F0-9]{7,16})\b")
 TIMESTAMP_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}T\S+)\s+(.*)$")
 FROM_RE = re.compile(r"from=<([^>]*)>")
 TO_RE = re.compile(r"to=<([^>]*)>")
@@ -29,9 +30,9 @@ HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name=
 <main><h1>Mail Flow</h1><p class="muted">Operational message processing only. Startup, supervisor and container noise is excluded.</p>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 <div class="grid"><div class="metric"><span class="muted">Mailbox checks</span><strong>{{ counts.checks }}</strong></div><div class="metric"><span class="muted">Messages detected</span><strong>{{ counts.detected }}</strong></div><div class="metric"><span class="muted">Delivered</span><strong class="good">{{ counts.delivered }}</strong></div><div class="metric"><span class="muted">Rejected / failed</span><strong class="bad">{{ counts.failed }}</strong></div></div>
-<div class="card"><form method="get"><div class="grid"><label>Raw lines analysed<select name="tail">{% for n in [500,1000,5000,10000] %}<option value="{{ n }}" {% if tail==n %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></label><label>Filter<input name="q" value="{{ query }}" placeholder="sender, recipient, queue ID, folder..."></label><label>Auto-refresh<select name="refresh"><option value="0">Off</option>{% for n in [5,15,30,60] %}<option value="{{ n }}" {% if refresh==n %}selected{% endif %}>{{ n }} seconds</option>{% endfor %}</select></label><div class="actions"><button>Refresh</button><a class="button secondary" href="/activity">Open technical system log</a></div></div></form></div>
+<div class="card"><form method="get"><div class="grid"><label>Raw lines analysed<select name="tail">{% for n in [500,1000,5000,10000] %}<option value="{{ n }}" {% if tail==n %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></label><label>Filter<input name="q" value="{{ query }}" placeholder="sender, recipient, queue ID, folder..."></label><label>Auto-refresh<select name="refresh"><option value="0">Off</option>{% for n in [5,15,30,60] %}<option value="{{ n }}" {% if refresh==n %}selected{% endif %}>{{ n }} seconds</option>{% endfor %}</select></label><div class="actions"><button>Refresh</button><button type="submit" form="fetch-now-form">Fetch mail now</button><a class="button secondary" href="/activity">Open technical system log</a></div></div></form><form id="fetch-now-form" method="post" action="/accounts/fetch-now"></form></div>
 <div class="card"><h2>Message processing</h2>{% if messages %}<table><thead><tr><th>Last event</th><th>Message</th><th>Processing</th><th>Result</th></tr></thead><tbody>{% for m in messages %}<tr><td>{{ m.time }}</td><td>{% if m.queue_id %}<code>{{ m.queue_id }}</code><br>{% endif %}<strong>{{ m.sender or 'Unknown sender' }}</strong><br><span class="muted">→ {{ m.recipient or 'Unknown recipient' }}</span>{% if m.subject %}<br>{{ m.subject }}{% endif %}</td><td><div class="steps">{% for s in m.steps %}<span class="step {{ s.css }}">{{ s.label }}</span>{% endfor %}</div>{% if m.spam_score %}<div class="muted">Spam score: {{ m.spam_score }}</div>{% endif %}<details><summary class="muted">Event details</summary><div class="details">{{ m.details }}</div></details></td><td><strong class="{{ m.result_css }}">{{ m.result }}</strong></td></tr>{% endfor %}</tbody></table>{% else %}<p>No message-processing events were identified in the selected log range.</p>{% endif %}</div>
-<div class="card"><h2>Mailbox polling</h2>{% if polls %}<table><thead><tr><th>Time</th><th>Mailbox/folder</th><th>Event</th><th>Messages</th></tr></thead><tbody>{% for p in polls %}<tr><td>{{ p.time }}</td><td>{{ p.mailbox }}</td><td>{{ p.event }}</td><td>{{ p.count }}</td></tr>{% endfor %}</tbody></table>{% else %}<p>No mailbox-login or polling events were identified in the selected range.</p>{% endif %}</div>
+<div class="card"><h2>Mailbox polling</h2>{% if polls %}<table><thead><tr><th>Time</th><th>Source</th><th>Event</th><th>Processes/messages</th></tr></thead><tbody>{% for p in polls %}<tr><td>{{ p.time }}</td><td>{{ p.mailbox }}</td><td class="{{ p.css }}">{{ p.event }}</td><td>{{ p.count }}</td></tr>{% endfor %}</tbody></table>{% else %}<p>No mailbox polling attempts have been recorded. Rebuild and restart <code>mailgate-fetchtrigger</code>, then press <strong>Fetch mail now</strong>.</p>{% endif %}</div>
 </main></body></html>"""
 
 
@@ -48,32 +49,23 @@ def require_auth():
 
 def _split(line):
     match = TIMESTAMP_RE.match(line)
-    if match:
-        return match.group(1), match.group(2)
-    return "", line
+    return (match.group(1), match.group(2)) if match else ("", line)
 
 
 def _queue_id(text):
-    # Prefer Postfix-style token immediately before a colon.
     match = re.search(r"\b([A-F0-9]{7,16}):", text)
     return match.group(1) if match else None
 
 
 def _event_step(text):
     lower = text.lower()
-    if "fetchmail" in lower:
-        if any(x in lower for x in ("reading message", "fetching message", "message ")):
-            return ("Fetched", "ok")
-        if any(x in lower for x in ("authorization succeeded", "login", "authenticated")):
-            return ("Mailbox login", "ok")
+    if "fetchmail" in lower and any(x in lower for x in ("reading message", "fetching message", "message ")):
+        return ("Fetched", "ok")
     if "rspamd" in lower or "milter" in lower:
-        if any(x in lower for x in ("reject", "spam")):
-            return ("Spam checked", "warn")
-        return ("Spam checked", "ok")
+        return ("Spam checked", "warn" if any(x in lower for x in ("reject", "spam")) else "ok")
     if "clam" in lower or "virus" in lower or "malware" in lower:
-        if any(x in lower for x in ("virus", "infected", "malware", "reject")) and "clean" not in lower:
-            return ("AV blocked", "bad")
-        return ("AV clean", "ok")
+        blocked = any(x in lower for x in ("virus", "infected", "malware", "reject")) and "clean" not in lower
+        return ("AV blocked", "bad") if blocked else ("AV clean", "ok")
     if "postfix" in lower:
         if "status=sent" in lower:
             return ("Delivered", "ok")
@@ -86,14 +78,36 @@ def _event_step(text):
     return None
 
 
+def _structured_polls():
+    rows = []
+    try:
+        lines = POLL_EVENTS_FILE.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return rows
+    for line in lines[-500:]:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        state = event.get("state", "unknown")
+        rows.append({
+            "time": event.get("timestamp", ""),
+            "mailbox": "Startup poll" if event.get("source") == "startup" else "Manual poll",
+            "event": event.get("message", state),
+            "count": event.get("process_count", 0),
+            "css": "good" if state == "triggered" else ("bad" if state == "failed" else "warn"),
+        })
+    rows.reverse()
+    return rows
+
+
 def parse_mail_flow(text):
     messages = OrderedDict()
-    polls = []
+    polls = _structured_polls()
     unkeyed = 0
     for raw in text.splitlines():
         timestamp, line = _split(raw)
         lower = line.lower()
-
         if "fetchmail" in lower:
             poll_event = None
             if any(x in lower for x in ("authorization succeeded", "authenticated", "login")):
@@ -105,7 +119,7 @@ def parse_mail_flow(text):
             if poll_event:
                 folder_match = FOLDER_RE.search(line)
                 count_match = COUNT_RE.search(line)
-                polls.append({"time": timestamp, "mailbox": folder_match.group(1).strip() if folder_match else "Provider mailbox", "event": poll_event, "count": count_match.group(1) if count_match else "—"})
+                polls.append({"time": timestamp, "mailbox": folder_match.group(1).strip() if folder_match else "Provider mailbox", "event": poll_event, "count": count_match.group(1) if count_match else "—", "css": "good"})
 
         step = _event_step(line)
         if not step:
@@ -114,23 +128,14 @@ def parse_mail_flow(text):
         if queue_id:
             key = queue_id
         else:
-            # Fetchmail often has no Postfix queue ID. Keep these visible as standalone events.
             unkeyed += 1
             key = f"event-{unkeyed}"
         event = messages.setdefault(key, {"queue_id": queue_id, "time": timestamp, "sender": "", "recipient": "", "subject": "", "spam_score": "", "steps": [], "details": [], "result": "Processing", "result_css": "warn"})
         event["time"] = timestamp or event["time"]
-        from_match = FROM_RE.search(line)
-        to_match = TO_RE.search(line)
-        subject_match = SUBJECT_RE.search(line)
-        score_match = SCORE_RE.search(line)
-        if from_match:
-            event["sender"] = from_match.group(1)
-        if to_match:
-            event["recipient"] = to_match.group(1)
-        if subject_match:
-            event["subject"] = subject_match.group(1).strip()
-        if score_match:
-            event["spam_score"] = score_match.group(1)
+        for regex, field in ((FROM_RE, "sender"), (TO_RE, "recipient"), (SUBJECT_RE, "subject"), (SCORE_RE, "spam_score")):
+            match = regex.search(line)
+            if match:
+                event[field] = match.group(1).strip()
         if not any(existing["label"] == step[0] for existing in event["steps"]):
             event["steps"].append({"label": step[0], "css": step[1]})
         event["details"].append(line)
@@ -148,9 +153,8 @@ def parse_mail_flow(text):
         event["details"] = "\n".join(event["details"])
         rows.append(event)
     rows.reverse()
-    polls.reverse()
     counts = {
-        "checks": len(polls),
+        "checks": sum(1 for p in polls if p.get("event")),
         "detected": sum(1 for row in rows if any(s["label"] == "Fetched" for s in row["steps"])),
         "delivered": sum(1 for row in rows if row["result"] == "Delivered to Exchange"),
         "failed": sum(1 for row in rows if row["result_css"] == "bad"),
@@ -186,6 +190,6 @@ def mail_flow():
     messages, polls, counts = parse_mail_flow(text)
     if query:
         needle = query.casefold()
-        messages = [m for m in messages if needle in (m["queue_id"] or "").casefold() or needle in m["sender"].casefold() or needle in m["recipient"].casefold() or needle in m["subject"].casefold() or needle in m["details"].casefold()]
+        messages = [m for m in messages if needle in ((m["queue_id"] or "") + m["sender"] + m["recipient"] + m["subject"] + m["details"]).casefold()]
         polls = [p for p in polls if needle in (p["mailbox"] + " " + p["event"]).casefold()]
-    return render_template_string(HTML, version=os.environ.get("MAILGATE_VERSION", "0.2.8"), build=os.environ.get("MAILGATE_BUILD", "dev"), messages=messages, polls=polls, counts=counts, error=error, tail=tail, query=query, refresh=refresh)
+    return render_template_string(HTML, version=os.environ.get("MAILGATE_VERSION", "0.3.1"), build=os.environ.get("MAILGATE_BUILD", "dev"), messages=messages, polls=polls, counts=counts, error=error, tail=tail, query=query, refresh=refresh)
