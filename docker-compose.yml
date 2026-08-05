@@ -104,8 +104,8 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Europe/Brussels}
-      MAILGATE_VERSION: ${MAILGATE_VERSION:-0.2.8}
-      MAILGATE_BUILD: ${MAILGATE_BUILD:-20260805.13}
+      MAILGATE_VERSION: ${MAILGATE_VERSION:-0.2.9}
+      MAILGATE_BUILD: ${MAILGATE_BUILD:-20260805.14}
       UI_USERNAME: ${UI_USERNAME:-admin}
       UI_PASSWORD: ${UI_PASSWORD:-change-me-now}
       EXCHANGE_HOST: ${EXCHANGE_HOST}
