@@ -1,15 +1,28 @@
 import json
-from pathlib import Path
 
 import app_clean
 
 
 def _render_actions(filters):
+    greylist = float(filters["greylist"])
+    add_header = float(filters["spam_add_header"])
+    reject = float(filters["spam_reject"])
+
+    # Rspamd 3.11 can fail in lua_cfg_transform when an action threshold is
+    # merged as `null` (userdata) while other thresholds are numeric. DMS uses
+    # rewrite_subject when SPAM_SUBJECT is configured, so always provide a
+    # numeric rewrite threshold as part of the complete action set.
+    # Keep it just above add_header so ordinary spam headers are applied first.
+    rewrite_subject = round(add_header + 0.1, 2)
+    if rewrite_subject >= reject:
+        rewrite_subject = round((add_header + reject) / 2, 2)
+
     return (
         "# Managed by MailGate WebUI\n"
-        f"greylist = {float(filters['greylist'])};\n"
-        f"add_header = {float(filters['spam_add_header'])};\n"
-        f"reject = {float(filters['spam_reject'])};\n"
+        f"greylist = {greylist};\n"
+        f"add_header = {add_header};\n"
+        f"rewrite_subject = {rewrite_subject};\n"
+        f"reject = {reject};\n"
     )
 
 
@@ -29,6 +42,12 @@ def _render_commands(filters):
 
 
 def save_filters_fixed(filters):
+    greylist = float(filters["greylist"])
+    add_header = float(filters["spam_add_header"])
+    reject = float(filters["spam_reject"])
+    if not 0 <= greylist <= add_header < reject:
+        raise ValueError("Required order: greylist ≤ add-header < reject.")
+
     app_clean.atomic_write(
         app_clean.FILTER_FILE,
         json.dumps(filters, indent=2) + "\n",
