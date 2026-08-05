@@ -8,9 +8,7 @@ services:
       TZ: ${TZ:-Europe/Brussels}
       OVERRIDE_HOSTNAME: ${MAILGATE_HOSTNAME:-mailgate.local}
       SMTP_ONLY: "1"
-      ENABLE_FETCHMAIL: "1"
-      FETCHMAIL_POLL: ${FETCHMAIL_POLL_INTERVAL:-60}
-      FETCHMAIL_PARALLEL: "0"
+      ENABLE_FETCHMAIL: "0"
       DMS_CONFIG_POLL: "10"
       ENABLE_RSPAMD: "1"
       ENABLE_RSPAMD_REDIS: "1"
@@ -45,20 +43,29 @@ services:
       retries: 5
       start_period: 3m
 
-  fetchtrigger:
+  fetcher:
     build:
-      context: ./fetch-trigger
-    container_name: mailgate-fetchtrigger
+      context: ./fetcher
+    container_name: mailgate-fetcher
+    user: "${PUID:-1026}:${PGID:-100}"
     restart: unless-stopped
-    pid: "service:mailserver"
     environment:
       TZ: ${TZ:-Europe/Brussels}
+      MAILGATE_CONFIG: /config/mailgate.json
       CONTROL_DIR: /control
-      STARTUP_TIMEOUT: "180"
+      STATE_DB: /state/fetcher.sqlite3
+      SMTP_HOST: mailserver
+      SMTP_PORT: "25"
+      DEFAULT_POLL_INTERVAL: ${FETCHMAIL_POLL_INTERVAL:-60}
     volumes:
+      - ${DATA_PATH:-/volume1/docker/MailGate}/config:/config:ro
       - ${DATA_PATH:-/volume1/docker/MailGate}/config/fetch-now:/control
+      - ${DATA_PATH:-/volume1/docker/MailGate}/fetcher-state:/state
+    networks:
+      - mailgate
     depends_on:
-      - mailserver
+      mailserver:
+        condition: service_healthy
 
   avupdater:
     build:
@@ -105,8 +112,8 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Europe/Brussels}
-      MAILGATE_VERSION: ${MAILGATE_VERSION:-0.3.1}
-      MAILGATE_BUILD: ${MAILGATE_BUILD:-20260805.16}
+      MAILGATE_VERSION: ${MAILGATE_VERSION:-0.4.0}
+      MAILGATE_BUILD: ${MAILGATE_BUILD:-20260805.17}
       UI_USERNAME: ${UI_USERNAME:-admin}
       UI_PASSWORD: ${UI_PASSWORD:-change-me-now}
       EXCHANGE_HOST: ${EXCHANGE_HOST}
@@ -127,7 +134,7 @@ services:
       - mailgate
     depends_on:
       - mailserver
-      - fetchtrigger
+      - fetcher
       - avupdater
       - dockerproxy
 
