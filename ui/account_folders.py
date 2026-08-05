@@ -1,9 +1,14 @@
 import json
+import os
+from pathlib import Path
 
 from flask import flash, redirect, render_template_string, request, url_for
 
 import app_clean
 from connection_tests import test_exchange, test_provider
+
+FETCH_CONTROL_DIR = Path(os.environ.get("FETCH_NOW_CONTROL_PATH", "/data/config/fetch-now"))
+FETCH_STATUS_FILE = FETCH_CONTROL_DIR / "fetch-now-status.json"
 
 
 def _normalise_folders(protocol, raw):
@@ -15,6 +20,14 @@ def _normalise_folders(protocol, raw):
         if folder and folder not in folders:
             folders.append(folder)
     return folders or ["INBOX"]
+
+
+def _fetch_status():
+    try:
+        data = json.loads(FETCH_STATUS_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def migrate_accounts(settings):
@@ -67,6 +80,7 @@ app_clean.generate_fetchmail = generate_fetchmail
 
 ACCOUNTS_BODY = """
 <div class="card"><h2>Target server</h2><form method="post"><div class="grid"><label>SMTP server<input name="delivery_host" value="{{ delivery.host }}" required></label><label>SMTP port<input name="delivery_port" type="number" value="{{ delivery.port }}" required></label><label>Fetch interval in seconds<input name="poll_interval" type="number" min="10" max="86400" value="{{ delivery.poll_interval }}"></label><label>Test sender<input name="test_sender" value="{{ delivery.sender }}"></label><label>Test recipient<input name="test_recipient" type="email" placeholder="user@example.com"></label></div><div class="actions"><button name="action" value="test-delivery" class="secondary">Test target and recipient</button><button name="action" value="save-delivery">Save target settings</button></div></form></div>
+<div class="card"><h2>Mailbox retrieval</h2><div class="actions"><form method="post" action="{{ url_for('fetch_now') }}"><button type="submit">Fetch mail now</button></form><a class="button secondary" href="/mail-flow">Open Mail Flow</a></div><p class="muted">A first mailbox poll is triggered automatically after Fetchmail starts. Use this button to request another poll immediately.</p><table><tr><th>Last trigger state</th><td>{{ fetch_status.state or 'Not reported yet' }}</td></tr><tr><th>Time</th><td>{{ fetch_status.timestamp or '—' }}</td></tr><tr><th>Result</th><td>{{ fetch_status.message or 'The trigger service has not reported a result yet.' }}</td></tr></table></div>
 <div class="card"><h2>Provider accounts</h2>{% if configured %}<table><thead><tr><th>Provider</th><th>Login</th><th>Folders</th><th>Destination</th><th>TLS</th><th>Source handling</th><th>Actions</th></tr></thead><tbody>{% for a in configured %}<tr><td>{{ a.host }}:{{ a.port }}<br><span class="muted">{{ a.protocol|upper }}</span></td><td>{{ a.username }}</td><td>{% for folder in a.folders %}<code>{{ folder }}</code>{% if not loop.last %}<br>{% endif %}{% endfor %}</td><td>{{ a.recipient }}</td><td>{{ 'Verified' if a.verify_certificate else 'Verification disabled' }}</td><td>{{ 'Keep copy' if a.keep else 'Delete after accepted' }}</td><td><div class="actions"><a class="button secondary" href="{{ url_for('edit_provider_account', index=loop.index0) }}">Edit</a><form method="post" action="{{ url_for('delete_account', index=loop.index0) }}" onsubmit="return confirm('Delete this provider account?');"><button class="danger">Delete</button></form></div></td></tr>{% endfor %}</tbody></table>{% else %}<p class="warn">No provider accounts configured yet.</p>{% endif %}</div>
 <div class="card"><h2>Add provider account</h2><form method="post"><div class="grid"><label>IMAP/POP server<input required name="host" placeholder="imap.example.com"></label><label>Port<input required name="port" type="number" value="993"></label><label>Protocol<select name="protocol"><option value="imap">IMAP</option><option value="pop3">POP3</option></select></label><label>Provider username<input required name="username" autocomplete="off"></label><label>Provider password<input required name="password" type="password" autocomplete="new-password"></label><label>Exchange recipient<input required name="recipient" type="email" placeholder="user@example.com"></label><label>IMAP folders, one per line<textarea name="folders" rows="4">INBOX</textarea><span class="muted">Examples: INBOX, Spam, Junk, Junk E-mail. POP3 ignores this field.</span></label><div><label><input type="checkbox" name="keep" checked>Keep messages at provider</label><label><input type="checkbox" name="verify_certificate" checked>Verify TLS certificate</label></div></div><div class="actions"><button name="action" value="test-provider" class="secondary">Test provider login</button><button name="action" value="save-account">Save account</button></div></form></div>
 <div class="card"><h2>Generated Fetchmail configuration</h2><p><code>{{ fetchmail_file }}</code></p><pre>{{ generated }}</pre><p class="muted">Each selected IMAP folder generates a separate retrieval entry. Folder names must exactly match the provider's server-side IMAP mailbox name.</p></div>
@@ -156,6 +170,7 @@ def accounts_view():
         delivery=delivery,
         generated=generated,
         fetchmail_file=app_clean.FETCHMAIL_FILE,
+        fetch_status=_fetch_status(),
     )
 
 
