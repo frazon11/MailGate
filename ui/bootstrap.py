@@ -9,6 +9,7 @@ from activity_log import bp as activity_log_blueprint
 from auth_store import verify_admin
 from av_status import read_clamav_status
 from av_update import read_update_status, request_update
+from mail_flow import bp as mail_flow_blueprint
 
 app = app_clean.app
 
@@ -19,7 +20,8 @@ def _nav_with_activity(active):
         ("accounts", "Accounts & Delivery", "/accounts"),
         ("spam", "Spam Protection", "/spam"),
         ("antivirus", "Antivirus", "/antivirus"),
-        ("activity", "Activity Log", "/activity"),
+        ("mailflow", "Mail Flow", "/mail-flow"),
+        ("activity", "System Log", "/activity"),
         ("security", "Security / Profile", "/security"),
     ]
     return "".join(
@@ -30,6 +32,7 @@ def _nav_with_activity(active):
 
 app_clean.nav = _nav_with_activity
 install_account_folders()
+app.register_blueprint(mail_flow_blueprint)
 app.register_blueprint(activity_log_blueprint)
 
 AV_BODY = """
